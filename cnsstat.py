@@ -19,13 +19,36 @@ _MEGA = _KILO * _KILO
 _GIGA = _KILO * _MEGA
 _TERA = _KILO * _GIGA
 
+# Skip filesystem (linux only :/) - ignore disk volumes under these paths:
+_SKIP_FS = {'/sys', '/proc', '/dev', '/run', '/mem', '/tmp', '/boot'}
+
+# Skip interface - ignore network devices with these names
+_SKIP_IF = {
+    'lo',
+    'lo0',
+}
+
+# Apple SMC CPU package thermometer codes
+_ASMC_PKG = {
+    # MacPro 'tower'
+    'TCAH',
+    'TCBH',
+    'TCCH',
+    'TCDH',
+    # Book/Air/Other
+    'TC0D',
+    'TC1D',
+    'TC2D',
+    'TC3D',
+}
+
 
 def getIfs(match=[]):
     """Get list of all up network interfaces, skip lo unless requested"""
     ret = []
     netIfs = psutil.net_if_stats()
     for i in netIfs:
-        if i != 'lo':
+        if i not in _SKIP_IF:
             if not match or i in match:
                 if netIfs[i].isup:
                     ret.append(i)
@@ -35,27 +58,42 @@ def getIfs(match=[]):
 
 
 def getTemp():
-    """Get platform temperature or a list of cpu package temperatures"""
+    """Get CPU package temperature, or platform temperature if available"""
     ret = []
     try:
         sense = psutil.sensors_temperatures()
         curtemp = None
-        if 'acpitz' in sense:
-            ret.append(sense['acpitz'][0].current)
-        elif 'coretemp' in sense:
+        # prioritise coretemp, applesmc
+        if 'coretemp' in sense:
             for t in sense['coretemp']:
                 if t.label.startswith('Package'):
                     ret.append(t.current)
+        elif 'applesmc' in sense:
+            for t in sense['applesmc']:
+                if t.label in _ASMC_PKG:
+                    ret.append(t.current)
+        elif 'acpitz' in sense:
+            ret.append(sense['acpitz'][0].current)
     except Exception:
         pass
+    return ret
+
+
+def checkFs(volume):
+    """Return true if volume is not filtered"""
+    ret = True
+    for rp in _SKIP_FS:
+        if volume.startswith(rp):
+            ret = False
+            break
     return ret
 
 
 def getHdds():
     """Get list of hard disk volumes, skipping any mounted under /boot"""
     ret = []
-    for hd in psutil.disk_partitions():
-        if not hd.mountpoint.startswith('/boot'):
+    for hd in psutil.disk_partitions(all=True):
+        if checkFs(hd.mountpoint):
             ret.append(hd)
     return ret
 

@@ -9,12 +9,19 @@ Cheap-n-nasty text system status via psutil:
 	sda: [/] 38 %, 45.1/119 GB
 	wlp1s0: 4 | 3 kbit/s
 
+Displays estimate of current overall CPU usage in percent, load average
+divided by number of cores, CPU package temperature(s), memory usage,
+mounted filesystem space and network traffic per interface TX | RX.
+
+Text is formatted for sending by DM or SMS.
+
 ## Usage
 
 	cnsstat [NETDEV] ...
 
-Specify a list of network devices to display on the command
-line, any that are up will be included in the output.
+Optionally specify a list of network devices to display
+on the command line, any that are up will be included in
+the output.
 
 ## Requirements
 
