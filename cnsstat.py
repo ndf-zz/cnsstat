@@ -4,6 +4,7 @@
 import psutil
 from shutil import disk_usage
 from time import time, sleep
+from math import ceil
 import sys
 import os
 
@@ -20,7 +21,10 @@ _GIGA = _KILO * _MEGA
 _TERA = _KILO * _GIGA
 
 # Skip filesystem (linux only :/) - ignore disk volumes under these paths:
-_SKIP_FS = {'/sys', '/proc', '/dev', '/run', '/mem', '/tmp', '/boot'}
+_SKIP_FS = {
+    '/sys', '/proc', '/dev', '/run', '/mem', '/tmp', '/boot', '/rom',
+    '/overlay'
+}
 
 # Skip interface - ignore network devices with these names
 _SKIP_IF = {
@@ -63,15 +67,21 @@ def getTemp():
     try:
         sense = psutil.sensors_temperatures()
         curtemp = None
-        # prioritise coretemp, applesmc
+        # Intel
         if 'coretemp' in sense:
             for t in sense['coretemp']:
                 if t.label.startswith('Package'):
                     ret.append(t.current)
+        # Mediatek/ARM
+        elif 'cpu_thermal' in sense:
+            for t in sense['cpu_thermal']:
+                ret.append(t.current)
+        # Apple without coretemp
         elif 'applesmc' in sense:
             for t in sense['applesmc']:
                 if t.label in _ASMC_PKG:
                     ret.append(t.current)
+        # Others
         elif 'acpitz' in sense:
             ret.append(sense['acpitz'][0].current)
     except Exception:
@@ -134,12 +144,12 @@ def fmtTemp(hdr):
     try:
         ts = getTemp()
         if len(ts) == 1:
-            ret = '%s: %0.1f\u2006\u00b0C' % (hdr, ts[0])
+            ret = '%s: %0.0f\u2006\u00b0C' % (hdr, ts[0])
         elif ts:
             i = 0
             rv = []
             for t in ts:
-                rv.append('[%d] %0.1f\u2006\u00b0C' % (i, t))
+                rv.append('[%d] %0.0f\u2006\u00b0C' % (i, t))
                 i += 1
             ret = '%s: %s' % (hdr, ', '.join(rv))
     except Exception:
@@ -151,7 +161,7 @@ def fmtCpu(hdr):
     """Format cpu use and load averages"""
     ret = '%s: -- n/a --' % (hdr)
     try:
-        cp = psutil.cpu_percent()
+        cp = ceil(psutil.cpu_percent())
         nc = psutil.cpu_count()
         la = psutil.getloadavg()
         ret = '%s: %0.0f\u2006%%, %0.1f, %0.1f, %0.1f' % (
@@ -166,12 +176,13 @@ def fmtMem(hdr):
     ret = '%s: -- n/a --' % (hdr, )
     try:
         mem = psutil.virtual_memory()
+        pct = ceil(mem.percent)
         if mem.total > _PFXTHRESH * _TERA:
             ret = '%s: %0.0f\u2006%%, %0.2f/%0.1f\u2006TB' % (
-                hdr, mem.percent, mem.used / _TERA, mem.total / _TERA)
+                hdr, pct, mem.used / _TERA, mem.total / _TERA)
         else:
             ret = '%s: %0.0f\u2006%%, %0.1f/%0.0f\u2006GB' % (
-                hdr, mem.percent, mem.used / _GIGA, mem.total / _GIGA)
+                hdr, pct, mem.used / _GIGA, mem.total / _GIGA)
     except Exception:
         pass
     return ret
@@ -182,7 +193,7 @@ def fmtDf(hdr, volume='/'):
     ret = '%s: -- n/a --' % (hdr, )
     try:
         du = disk_usage(volume)
-        dpct = 100.0 * du.used / du.total
+        dpct = ceil(100.0 * du.used / du.total)
         if du.total > _PFXTHRESH * _TERA:
             ret = '%s: [%s] %0.0f\u2006%%, %0.2f/%0.1f\u2006TB' % (
                 hdr,
@@ -191,13 +202,21 @@ def fmtDf(hdr, volume='/'):
                 du.used / _TERA,
                 du.total / _TERA,
             )
-        else:
+        elif du.total > _PFXTHRESH * _GIGA:
             ret = '%s: [%s] %0.0f\u2006%%, %0.1f/%0.0f\u2006GB' % (
                 hdr,
                 volume,
                 dpct,
                 du.used / _GIGA,
                 du.total / _GIGA,
+            )
+        else:
+            ret = '%s: [%s] %0.0f\u2006%%, %0.1f/%0.0f\u2006MB' % (
+                hdr,
+                volume,
+                dpct,
+                du.used / _MEGA,
+                du.total / _MEGA,
             )
     except Exception:
         pass
